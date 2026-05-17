@@ -315,7 +315,7 @@ function renderResult(precVal,precPct){
     <td data-row="${ri}" data-col="8" data-fspec="{3} × ({5} − {t})" data-fhl="3 5" data-sum-hl="5">${fmtVal(row.between)}</td>
     <td data-row="${ri}" data-col="9" data-fspec="{3} × {6}" data-fhl="3 6">${fmtVal(row.cross)}</td>
     <td data-row="${ri}" data-col="10" data-fspec="{7} + {8} + {9}" data-fhl="7 8 9" class="${dir(row.total)}">${fmtVal(row.total)}</td>
-    <td data-row="${ri}" data-col="11" data-fspec="{10} ÷ {s10} × 100%" data-fhl="10" data-sum-hl="10" class="${row.rate >= 0 ? 'up' : 'down'}">${row.rate.toFixed(2)}%</td></tr>`; });
+    <td data-row="${ri}" data-col="11" data-fspec="{10} ÷ {s10} × 100%" data-fhl="10" data-sum-hl="10" class="${dir(row.rate)}">${row.rate.toFixed(precPct)}%</td></tr>`; });
 
   const sum=fn=>r.rows.reduce((a,row)=>a+fn(row),0);
   // sc(v, fspec, fhl, sumCol, sumHl) — sumCol=which summary column this represents, sumHl=extra summary cells to highlight
