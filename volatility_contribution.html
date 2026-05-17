@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>波动贡献分析工具</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+:root {
+  --primary: #2563EB; --primary-dark: #1D4ED8; --bg: #F8FAFC; --white: #FFFFFF;
+  --text: #1E293B; --text2: #64748B; --border: #E2E8F0; --up: #DC2626; --down: #16A34A;
+  --radius: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: var(--text); background: var(--bg); line-height: 1.6; }
+.app { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+.header { text-align: center; margin-bottom: 24px; }
+.header h1 { font-size: 1.5rem; color: var(--primary-dark); }
+.header .sub { font-size: 0.85rem; color: var(--text2); margin-top: 4px; }
+.btn-link { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 0.9rem; margin-top: 8px; }
+.btn-link:hover { text-decoration: underline; }
+.error { background: #FEF2F2; color: var(--up); padding: 12px 16px; border-radius: var(--radius); margin-bottom: 16px; font-size: 0.9rem; display: none; }
+.error.show { display: block; }
+
+.upload-area { display: flex; flex-direction: column; align-items: center; padding: 20px 0; }
+.upload-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; max-width: 500px; min-height: 220px; border: 2px dashed var(--border); border-radius: var(--radius); background: var(--white); cursor: pointer; transition: border-color 0.2s; text-align: center; padding: 32px; }
+.upload-zone:hover { border-color: var(--primary); }
+.upload-icon { font-size: 2.5rem; margin-bottom: 12px; }
+.upload-main { font-size: 1rem; font-weight: 500; margin-bottom: 8px; }
+.upload-hint { font-size: 0.85rem; color: var(--text2); }
+#fileInput { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.config { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 768px) { .config { grid-template-columns: 1fr; } }
+.card { background: var(--white); border-radius: var(--radius); padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.card h3 { font-size: 1.1rem; margin-bottom: 12px; }
+.preview-info { font-size: 0.85rem; color: var(--text2); margin-bottom: 8px; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.preview-table th, .preview-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; white-space: nowrap; }
+.preview-table th { background: var(--bg); font-weight: 600; }
+
+.cfg-field { margin-bottom: 14px; }
+.cfg-field label { display: block; font-size: 0.9rem; font-weight: 500; margin-bottom: 6px; }
+.cfg-field select { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9rem; font-family: inherit; background: var(--white); }
+.chk-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.chk-item { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; padding: 4px 10px; border: 1px solid var(--border); border-radius: 20px; cursor: pointer; transition: all 0.2s; }
+.chk-item.checked { border-color: var(--primary); background: #EFF6FF; }
+.chk-item input { display: none; }
+.cfg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.btn-primary { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: var(--radius); font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 8px; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-primary:disabled { background: #94A3B8; cursor: not-allowed; }
+
+.result-table { white-space: nowrap; }
+.result-table th, .result-table td { border: 1px solid var(--border); padding: 8px 12px; text-align: right; }
+.result-table th { background: var(--bg); font-weight: 600; text-align: center; position: sticky; top: 0; }
+.result-table td:first-child { text-align: left; font-weight: 500; white-space: normal; word-break: break-all; max-width: 250px; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.summary-row td { font-weight: 700; background: #F1F5F9; border-top: 2px solid var(--text); }
+.verify { margin-top: 16px; padding: 12px 16px; background: var(--bg); border-radius: var(--radius); font-size: 0.9rem; }
+.verify-pass { color: var(--down); font-weight: 700; }
+.verify-fail { color: var(--up); font-weight: 700; }
+.step { display: none; }
+.step.active { display: block; }
+
+/* Formula tooltip */
+#formulaTip {
+  position: fixed; pointer-events: none; z-index: 99999;
+  background: #1E293B; color: #F8FAFC; font-size: 0.78rem; font-weight: 500;
+  padding: 7px 14px; border-radius: 6px; white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25); display: none;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+
+/* 12 unique column highlight colors */
+.hl-c1  { background: #DBEAFE !important; outline: 2px solid #3B82F6; outline-offset: -1px; }
+.hl-c2  { background: #E0E7FF !important; outline: 2px solid #6366F1; outline-offset: -1px; }
+.hl-c3  { background: #EDE9FE !important; outline: 2px solid #8B5CF6; outline-offset: -1px; }
+.hl-c4  { background: #D1FAE5 !important; outline: 2px solid #10B981; outline-offset: -1px; }
+.hl-c5  { background: #CCFBF1 !important; outline: 2px solid #14B8A6; outline-offset: -1px; }
+.hl-c6  { background: #A7F3D0 !important; outline: 2px solid #059669; outline-offset: -1px; }
+.hl-c7  { background: #FEF3C7 !important; outline: 2px solid #F59E0B; outline-offset: -1px; }
+.hl-c8  { background: #FED7AA !important; outline: 2px solid #EA580C; outline-offset: -1px; }
+.hl-c9  { background: #FEE2E2 !important; outline: 2px solid #EF4444; outline-offset: -1px; }
+.hl-c10 { background: #FFE4E6 !important; outline: 2px solid #E11D48; outline-offset: -1px; }
+.hl-c11 { background: #F3E8FF !important; outline: 2px solid #9333EA; outline-offset: -1px; }
+
+.formula-cell { cursor: help; }
+</style>
+</head>
+<body>
+<div id="formulaTip"></div>
+<div class="app">
+  <div class="header">
+    <h1>波动贡献分析</h1>
+    <p class="sub">Structural Decomposition Analysis</p>
+    <button class="btn-link" id="resetBtn" style="display:none">← 重新上传</button>
+  </div>
+  <div id="errorBox" class="error"></div>
+
+  <div id="stepUpload" class="step active">
+    <div class="upload-area">
+      <label class="upload-zone" id="uploadZone">
+        <span class="upload-icon">📂</span>
+        <span class="upload-main">点击选择文件，或拖拽到此处</span>
+        <span class="upload-hint">支持 CSV、Excel (.xlsx / .xls)</span>
+      </label>
+      <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+      <p id="loadingMsg" style="display:none; margin-top:16px; color:var(--text2)">解析中...</p>
+    </div>
+  </div>
+
+  <div id="stepConfig" class="step">
+    <div class="config">
+      <div class="card">
+        <h3>📋 数据预览</h3>
+        <p class="preview-info" id="previewInfo"></p>
+        <div class="table-wrap"><table class="preview-table" id="previewTable"></table></div>
+      </div>
+      <div class="card">
+        <h3>⚙️ 分析配置</h3>
+        <div class="cfg-field">
+          <label>分析维度（可多选）</label>
+          <div class="chk-group" id="dimCheckboxes"></div>
+        </div>
+        <div class="cfg-field">
+          <label>时间字段</label>
+          <select id="timeColSel"><option value="">-- 请选择 --</option></select>
+        </div>
+        <div class="cfg-row" id="timeLabelsRow" style="display:none">
+          <div class="cfg-field">
+            <label>基期标签</label>
+            <select id="baseLabelSel"><option value="">-- 请选择 --</option></select>
+          </div>
+          <div class="cfg-field">
+            <label>本期标签</label>
+            <select id="currentLabelSel"><option value="">-- 请选择 --</option></select>
+          </div>
+        </div>
+        <div class="cfg-field">
+          <label>指标字段</label>
+          <select id="indicatorColSel"><option value="">-- 请选择 --</option></select>
+        </div>
+        <div class="cfg-field">
+          <label>分母字段</label>
+          <select id="denominatorColSel"><option value="">-- 请选择 --</option></select>
+        </div>
+        <button class="btn-primary" id="analyzeBtn" disabled>开始分析</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="stepSheet" class="step">
+    <div class="upload-area">
+      <div class="card" style="max-width:500px;width:100%;text-align:center">
+        <h3>📑 选择工作表</h3>
+        <p class="preview-info" id="sheetFileInfo"></p>
+        <div class="cfg-field">
+          <select id="sheetSelect" style="width:100%;padding:10px;font-size:1rem"></select>
+        </div>
+        <button class="btn-primary" id="sheetConfirmBtn">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="stepResult" class="step">
+    <div class="card">
+      <h3>📊 分析结果</h3>
+      <div class="cfg-row" style="margin-bottom:16px">
+        <div class="cfg-field">
+          <label>数值小数位数</label>
+          <input type="number" id="precisionVal" value="4" min="1" max="8" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:0.85rem;font-family:inherit">
+        </div>
+        <div class="cfg-field">
+          <label>百分比小数位数</label>
+          <input type="number" id="precisionPct" value="2" min="1" max="4" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:0.85rem;font-family:inherit">
+        </div>
+      </div>
+      <div class="table-wrap"><table class="result-table" id="resultTable"></table></div>
+      <div class="verify" id="verifyBox"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const stepUpload = $('stepUpload'), stepSheet = $('stepSheet'), stepConfig = $('stepConfig'), stepResult = $('stepResult');
+const errorBox = $('errorBox'), resetBtn = $('resetBtn');
+const fileInput = $('fileInput'), uploadZone = $('uploadZone'), loadingMsg = $('loadingMsg');
+let fileData = null, result = null, rawWorkbook = null, currentFileName = '';
+
+function showStep(s) { [stepUpload,stepSheet,stepConfig,stepResult].forEach(x=>x.classList.remove('active')); s.classList.add('active'); resetBtn.style.display = s===stepUpload?'none':'inline'; }
+function showError(m) { errorBox.textContent=m; errorBox.classList.add('show'); }
+function hideError() { errorBox.classList.remove('show'); }
+
+uploadZone.addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',handleFile);
+uploadZone.addEventListener('dragover',e=>{e.preventDefault();});
+uploadZone.addEventListener('drop',e=>{e.preventDefault();fileInput.files=e.dataTransfer.files;handleFile();});
+resetBtn.addEventListener('click',()=>{fileData=null;result=null;rawWorkbook=null;currentFileName='';fileInput.value='';hideError();showStep(stepUpload);});
+
+async function handleFile(){
+  hideError(); const f=fileInput.files[0]; if(!f)return; loadingMsg.style.display='block'; currentFileName=f.name;
+  try { const ext=f.name.split('.').pop().toLowerCase();
+    if(ext==='csv'){ fileData=await parseCSV(f); setupConfig(); showStep(stepConfig); }
+    else if(ext==='xlsx'||ext==='xls'){ await parseExcelSheets(f); }
+    else throw new Error('不支持: .'+ext); }
+  catch(err){ showError(err.message||'解析失败'); } loadingMsg.style.display='none';
+}
+function parseCSV(f){ return new Promise((resolve,reject)=>{ Papa.parse(f,{header:true,skipEmptyLines:true,complete(r){ resolve({columns:r.meta.fields||[],rows:r.data}); },error:reject}); }); }
+function parseExcelSheets(f){ return new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=e=>{ try{ rawWorkbook=XLSX.read(new Uint8Array(e.target.result),{type:'array'}); const names=rawWorkbook.SheetNames; if(names.length===1){ loadSheet(names[0]); setupConfig(); showStep(stepConfig); resolve(); } else { $('sheetFileInfo').textContent=currentFileName+' ('+names.length+' 个工作表)'; const sel=$('sheetSelect'); sel.innerHTML=names.map(n=>`<option>${n}</option>`).join(''); showStep(stepSheet); $('sheetConfirmBtn').onclick=()=>{ loadSheet(sel.value); setupConfig(); showStep(stepConfig); }; resolve(); } }catch(err){reject(err);} }; r.onerror=()=>reject(new Error('读取失败')); r.readAsArrayBuffer(f); }); }
+function loadSheet(name){ const sh=rawWorkbook.Sheets[name]; const json=XLSX.utils.sheet_to_json(sh,{defval:''}); fileData={columns:json.length>0?Object.keys(json[0]):[],rows:json}; }
+
+function setupConfig(){
+  const cols=fileData.columns;
+  $('previewInfo').textContent=`${fileData.rows.length} 行 × ${cols.length} 列（仅展示前 5 行）`;
+  let h='<thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  fileData.rows.slice(0,5).forEach(r=>{ h+='<tr>'+cols.map(c=>`<td>${r[c]??''}</td>`).join('')+'</tr>'; }); h+='</tbody>';
+  $('previewTable').innerHTML=h;
+  $('dimCheckboxes').innerHTML=cols.map(c=>`<label class="chk-item" data-col="${c}"><input type="checkbox" value="${c}">${c}</label>`).join('');
+  document.querySelectorAll('.chk-item').forEach(el=>{ el.addEventListener('click',function(){ const cb=this.querySelector('input'); cb.checked=!cb.checked; this.classList.toggle('checked',cb.checked); checkCanAnalyze(); }); });
+  const opts='<option value="">-- 请选择 --</option>'+cols.map(c=>`<option>${c}</option>`).join('');
+  ['timeColSel','indicatorColSel','denominatorColSel'].forEach(id=>{$(id).innerHTML=opts;});
+  $('timeColSel').onchange=function(){ const vals=new Set(); fileData.rows.forEach(r=>vals.add(String(r[this.value]||'').trim())); const vOpts='<option value="">-- 请选择 --</option>'+[...vals].map(v=>`<option>${v}</option>`).join(''); $('baseLabelSel').innerHTML=vOpts; $('currentLabelSel').innerHTML=vOpts; $('timeLabelsRow').style.display=vals.size>0?'grid':'none'; checkCanAnalyze(); };
+  $('baseLabelSel').onchange=function(){ updateCurOpts(); checkCanAnalyze(); };
+  $('currentLabelSel').onchange=checkCanAnalyze;
+  $('indicatorColSel').onchange=checkCanAnalyze;
+  $('denominatorColSel').onchange=checkCanAnalyze;
+  $('analyzeBtn').onclick=runAnalysis;
+  updateCurOpts();
+}
+function updateCurOpts(){ const bv=$('baseLabelSel').value; const all=[...$('baseLabelSel').options].map(o=>o.value).filter(v=>v); $('currentLabelSel').innerHTML='<option value="">-- 请选择 --</option>'+all.filter(v=>v!==bv).map(v=>`<option>${v}</option>`).join(''); }
+function checkCanAnalyze(){ $('analyzeBtn').disabled=!($('timeColSel').value&&$('indicatorColSel').value&&$('denominatorColSel').value&&$('baseLabelSel').value&&$('currentLabelSel').value); }
+function getSelectedDims(){ return [...document.querySelectorAll('#dimCheckboxes .chk-item.checked input')].map(cb=>cb.value); }
+
+// ====== Calculation Engine ======
+function calculateContribution(rows,dimCols,timeCol,baseLabel,currentLabel,indicatorCol,denominatorCol){
+  const baseMap=new Map(),curMap=new Map(); let totalBaseW=0,totalCurW=0;
+  for(const row of rows){
+    const t=String(row[timeCol]||'').trim(); if(t!==baseLabel&&t!==currentLabel) continue;
+    const dim=dimCols.map(c=>String(row[c]??'')).join('|'), w=Number(row[denominatorCol])||0, v=Number(row[indicatorCol])||0;
+    const map=t===baseLabel?baseMap:curMap, ex=map.get(dim);
+    if(ex){ ex.weight+=w; ex.sumVal+=v*w; ex.value=ex.sumVal/ex.weight; }
+    else map.set(dim,{weight:w,value:v,sumVal:v*w});
+    if(t===baseLabel) totalBaseW+=w; else totalCurW+=w;
+  }
+  const allDims=new Set([...baseMap.keys(),...curMap.keys()]); let totalBaseV=0,totalCurV=0;
+  for(const dim of allDims){ const b=baseMap.get(dim)||{weight:0,value:0}, c=curMap.get(dim)||{weight:0,value:0}; totalBaseV+=(b.weight/totalBaseW)*b.value; totalCurV+=(c.weight/totalCurW)*c.value; }
+  const resultRows=[]; let sumCont=0,sumAbs=0;
+  for(const dim of allDims){
+    const b=baseMap.get(dim)||{weight:0,value:0}, c=curMap.get(dim)||{weight:0,value:0};
+    const bw=totalBaseW>0?b.weight/totalBaseW:0, cw=totalCurW>0?c.weight/totalCurW:0, dw=cw-bw, bv=b.value, cv=c.value, dv=cv-bv;
+    const within=bw*dv, between=dw*(bv-totalBaseV), cross=dw*dv, total=within+between+cross;
+    sumCont+=total; sumAbs+=Math.abs(total);
+    resultRows.push({dim,cw,bw,dw,cv,bv,dv,within,between,cross,total});
+  }
+  for(const r of resultRows) r.rate=sumAbs>0?(r.total/sumAbs)*100:0;
+  return {rows:resultRows,totalCurV,totalBaseV,totalDelta:totalCurV-totalBaseV,sumCont};
+}
+
+// ====== Run Analysis ======
+function runAnalysis(){
+  hideError(); const dims=getSelectedDims(), timeCol=$('timeColSel').value, baseLabel=$('baseLabelSel').value, currentLabel=$('currentLabelSel').value, indicatorCol=$('indicatorColSel').value, denominatorCol=$('denominatorColSel').value;
+  if(!dims.length||!timeCol||!baseLabel||!currentLabel||!indicatorCol||!denominatorCol){ showError('请完成所有配置'); return; }
+  try { result=calculateContribution(fileData.rows,dims,timeCol,baseLabel,currentLabel,indicatorCol,denominatorCol); showResult(); showStep(stepResult); }
+  catch(err){ showError(err.message||'计算失败'); }
+}
+
+// ====== Show Result with formula tooltips ======
+const COL_COLORS = {
+  1:{cls:'hl-c1',hex:'#3B82F6'}, 2:{cls:'hl-c2',hex:'#6366F1'}, 3:{cls:'hl-c3',hex:'#8B5CF6'},
+  4:{cls:'hl-c4',hex:'#10B981'}, 5:{cls:'hl-c5',hex:'#14B8A6'}, 6:{cls:'hl-c6',hex:'#059669'},
+  7:{cls:'hl-c7',hex:'#F59E0B'}, 8:{cls:'hl-c8',hex:'#EA580C'}, 9:{cls:'hl-c9',hex:'#EF4444'},
+  10:{cls:'hl-c10',hex:'#E11D48'}, 11:{cls:'hl-c11',hex:'#9333EA'},
+};
+const COL_LABEL=['','本期分母占比','基期分母占比','Δ分母占比','本期指标值','基期指标值','Δ指标值','组内贡献','组间贡献','交叉贡献','波动贡献','贡献度'];
+
+function colorFormula(text){
+  return text
+    .replace(/\{s(\d+)\}/g,(_,col)=>{ const c=COL_COLORS[parseInt(col)]; return c?`<span style="color:${c.hex};font-weight:600">合计${COL_LABEL[parseInt(col)]}</span>`:`{s${col}}`; })
+    .replace(/\{(\d+)\}/g,(_,col)=>{ const c=COL_COLORS[parseInt(col)]; return c?`<span style="color:${c.hex};font-weight:600">${COL_LABEL[parseInt(col)]}</span>`:`{${col}}`; })
+    .replace(/\{t\}/g,`<span style="color:${COL_COLORS[5].hex};font-weight:600">合计基期指标值</span>`);
+}
+
+function showResult(){
+  const precVal=parseInt($('precisionVal').value)||4, precPct=parseInt($('precisionPct').value)||2;
+  renderResult(precVal,precPct);
+  $('precisionVal').onchange=$('precisionPct').onchange=()=>{
+    const v=parseInt($('precisionVal').value)||4, p=parseInt($('precisionPct').value)||2;
+    renderResult(v,p);
+  };
+}
+function renderResult(precVal,precPct){
+  const r=result, dir=v=>v>=0?'up':'down', fmtPct=v=>(v*100).toFixed(precPct)+'%', fmtVal=v=>v.toFixed(precVal);
+  let html=`<thead><tr><th>维度</th><th>本期分母占比</th><th>基期分母占比</th><th>Δ分母占比</th><th>本期指标值</th><th>基期指标值</th><th>Δ指标值</th><th>组内贡献</th><th>组间贡献</th><th>交叉贡献</th><th>波动贡献</th><th>贡献度</th></tr></thead><tbody>`;
+  r.rows.forEach((row,ri)=>{ html+=`<tr>
+    <td>${row.dim}</td>
+    <td data-row="${ri}" data-col="1">${fmtPct(row.cw)}</td>
+    <td data-row="${ri}" data-col="2">${fmtPct(row.bw)}</td>
+    <td data-row="${ri}" data-col="3" data-fspec="{1} − {2}" data-fhl="1 2" class="${dir(row.dw)}">${fmtPct(row.dw)}</td>
+    <td data-row="${ri}" data-col="4">${fmtVal(row.cv)}</td>
+    <td data-row="${ri}" data-col="5">${fmtVal(row.bv)}</td>
+    <td data-row="${ri}" data-col="6" data-fspec="{4} − {5}" data-fhl="4 5" class="${dir(row.dv)}">${fmtVal(row.dv)}</td>
+    <td data-row="${ri}" data-col="7" data-fspec="{2} × {6}" data-fhl="2 6">${fmtVal(row.within)}</td>
+    <td data-row="${ri}" data-col="8" data-fspec="{3} × ({5} − {t})" data-fhl="3 5" data-sum-hl="5">${fmtVal(row.between)}</td>
+    <td data-row="${ri}" data-col="9" data-fspec="{3} × {6}" data-fhl="3 6">${fmtVal(row.cross)}</td>
+    <td data-row="${ri}" data-col="10" data-fspec="{7} + {8} + {9}" data-fhl="7 8 9" class="${dir(row.total)}">${fmtVal(row.total)}</td>
+    <td data-row="${ri}" data-col="11" data-fspec="{10} ÷ {s10} × 100%" data-fhl="10" data-sum-hl="10">${row.rate.toFixed(2)}%</td></tr>`; });
+
+  const sum=fn=>r.rows.reduce((a,row)=>a+fn(row),0);
+  // sc(v, fspec, fhl, sumCol, sumHl) — sumCol=which summary column this represents, sumHl=extra summary cells to highlight
+  const sc=(v,fspec,fhl,sumCol,sumHl)=>`<td data-row="s" data-col="${sumCol}" data-fspec="${fspec||''}" data-fhl="${fhl||''}" data-sum-hl="${sumHl||''}" class="formula-cell">${v}</td>`;
+  html+=`<tfoot><tr class="summary-row"><td>合计</td>
+    ${sc(fmtPct(sum(x=>x.cw)),'Σ {1} = 100%','1','1','')}
+    ${sc(fmtPct(sum(x=>x.bw)),'Σ {2} = 100%','2','2','')}
+    ${sc(fmtPct(sum(x=>x.dw)),'Σ {3} = 0','3','3','')}
+    ${sc(fmtVal(r.totalCurV),'Σ ({1} × {4})','1 4','4','')}
+    ${sc(fmtVal(r.totalBaseV),'Σ ({2} × {5})','2 5','5','')}
+    ${sc(fmtVal(r.totalDelta),'{4} − {5}','','6','4 5')}
+    ${sc(fmtVal(sum(x=>x.within)),'Σ {7}','7','7','')}
+    ${sc(fmtVal(sum(x=>x.between)),'Σ {8}','8','8','')}
+    ${sc(fmtVal(sum(x=>x.cross)),'Σ {9}','9','9','')}
+    ${sc(fmtVal(r.sumCont),'Σ ({7} + {8} + {9})','','10','7 8 9')}
+    ${sc('100.00%','Σ {11} = 100%','11','11','')}
+  </tr></tfoot>`;
+  $('resultTable').innerHTML=html; setupHoverHighlight();
+  const ok=Math.abs(r.totalDelta-r.sumCont)<0.001;
+  $('verifyBox').innerHTML=`<p>总指标变动 = 本期总指标 − 基期总指标 = ${fmtVal(r.totalCurV)} − ${fmtVal(r.totalBaseV)} = <strong>${fmtVal(r.totalDelta)}</strong></p><p>Σ 波动贡献 = <strong>${fmtVal(r.sumCont)}</strong><span class="${ok?'verify-pass':'verify-fail'}">${ok?' ✓ 验证通过':' ✗ 验证不通过'}</span></p>`;
+}
+
+// ====== Hover Highlight ======
+function setupHoverHighlight(){
+  const table=$('resultTable'), tip=$('formulaTip');
+  const ALL_CLASSES='hl-c1 hl-c2 hl-c3 hl-c4 hl-c5 hl-c6 hl-c7 hl-c8 hl-c9 hl-c10 hl-c11'.split(' ');
+  let clearTimer;
+
+  function clearAll(){
+    table.querySelectorAll(ALL_CLASSES.map(c=>'.'+c).join(',')).forEach(el=>el.classList.remove(...ALL_CLASSES));
+    tip.style.display='none';
+  }
+
+  function addHighlight(sel){
+    const el=table.querySelector(sel); if(el){ const col=parseInt(el.dataset.col); if(col&&COL_COLORS[col]) el.classList.add(COL_COLORS[col].cls); }
+  }
+
+  function highlightCols(cols,row){
+    cols.forEach(tcol=>{
+      if(row!==undefined){
+        // Data row hover: only highlight the specific row's cells
+        table.querySelectorAll(`[data-row="${row}"][data-col="${tcol}"]`).forEach(el=>{ if(COL_COLORS[tcol]) el.classList.add(COL_COLORS[tcol].cls); });
+      } else {
+        // Summary row hover: highlight data rows only, not other summary cells
+        table.querySelectorAll(`tbody [data-col="${tcol}"]`).forEach(el=>{ if(COL_COLORS[tcol]) el.classList.add(COL_COLORS[tcol].cls); });
+      }
+    });
+  }
+
+  table.addEventListener('mouseover',function(e){
+    const cell=e.target.closest('[data-fspec]');
+    if(!cell){ clearAll(); return; }
+    clearTimeout(clearTimer); clearAll();
+    const fspec=cell.dataset.fspec, fhl=(cell.dataset.fhl||'').split(' ').filter(Boolean).map(Number), row=cell.dataset.row;
+    const sumHl=(cell.dataset.sumHl||'').split(' ').filter(Boolean).map(Number);
+    if(fspec){
+      if(fhl.length>0){
+        highlightCols(fhl, row==='s'?undefined:row);
+      }
+
+      // Handle data-sum-hl: summary-row cells to highlight
+      if(sumHl.length>0){
+        sumHl.forEach(scol=>{
+          table.querySelectorAll(`[data-row="s"][data-col="${scol}"]`).forEach(el=>{ if(COL_COLORS[scol]) el.classList.add(COL_COLORS[scol].cls); });
+        });
+        // For data row hover: also highlight the data row cells in sumHl columns
+        if(row!=='s'){
+          sumHl.forEach(scol=>{
+            table.querySelectorAll(`[data-row="${row}"][data-col="${scol}"]`).forEach(el=>{ if(COL_COLORS[scol]) el.classList.add(COL_COLORS[scol].cls); });
+          });
+        }
+      }
+
+      // Highlight the hovered cell itself if it's a summary row cell
+      if(row==='s' && cell.dataset.col){
+        const selfCol=parseInt(cell.dataset.col);
+        if(selfCol && COL_COLORS[selfCol]) cell.classList.add(COL_COLORS[selfCol].cls);
+      }
+
+      // Position tooltip
+      const rect=cell.getBoundingClientRect();
+      tip.innerHTML=colorFormula(fspec); tip.style.display='block';
+      let left=rect.left+rect.width/2, top=rect.top-10;
+      const tipW=tip.offsetWidth||200;
+      if(left+tipW/2>window.innerWidth-8) left=window.innerWidth-tipW/2-8;
+      if(left-tipW/2<8) left=tipW/2+8;
+      if(top<60){ top=rect.bottom+8; tip.style.transform='translate(-50%,0)'; }
+      else tip.style.transform='translate(-50%,-100%)';
+      tip.style.left=left+'px'; tip.style.top=top+'px';
+    }
+  });
+
+  table.addEventListener('mouseleave',function(){ clearTimer=setTimeout(clearAll,150); });
+  tip.addEventListener('mouseleave',function(){ clearAll(); });
+}
+</script>
+</body>
+</html>
